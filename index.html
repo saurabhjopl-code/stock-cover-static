@@ -1,22 +1,33 @@
-
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Stock Cover Analyzer (Client-side)</title>
+  <title>Flipkart FBF Allocation and Stock Analysis</title>
   <link rel="stylesheet" href="styles.css" />
   <!-- PapaParse CDN -->
   <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
 </head>
 <body>
-  <div class="container">
-    <h1>Stock Cover Analyzer — Client-side</h1>
-    <p class="lead">Upload Flipkart Sales CSV and FBF Stock CSV. Processing runs in your browser — no server needed. Ready to host on GitHub Pages.</p>
+  <header class="site-header">
+    <div class="header-left">
+      <img src="assets/logo.png" alt="Rajnandini Fashion India Limited logo" class="logo" />
+      <div class="title-block">
+        <div class="main-title">Flipkart FBF Allocation and Stock Analysis</div>
+        <div class="brand-line">Rajnandini Fashion India Limited.</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="version">v1.0</div>
+    </div>
+  </header>
 
-    <div class="uploader">
-      <label>Flipkart Sales CSV<input id="salesFile" type="file" accept=".csv" /></label>
-      <label>FBF Stock CSV<input id="stockFile" type="file" accept=".csv" /></label>
+  <div class="container">
+    <p class="lead">Upload Flipkart Sales CSV and FBF Stock CSV. Processing runs in your browser — no server needed.</p>
+
+    <div class="uploader compact">
+      <label class="file-label">Flipkart Sales CSV<input id="salesFile" type="file" accept=".csv" /></label>
+      <label class="file-label">FBF Stock CSV<input id="stockFile" type="file" accept=".csv" /></label>
       <div class="actions">
         <button id="processBtn">Process Files</button>
         <button id="resetBtn" class="muted">Reset</button>
@@ -25,6 +36,14 @@
     </div>
 
     <div id="summaryCards" class="cards hidden"></div>
+
+    <div id="controls" class="controls hidden">
+      <div class="filter-row">
+        <label class="filter-label">Warehouse:</label>
+        <select id="warehouseFilter" multiple size="4" class="warehouse-select"></select>
+        <button id="clearWarehouse" class="muted small">Clear</button>
+      </div>
+    </div>
 
     <div id="results" class="hidden">
       <div class="tabs">
@@ -45,7 +64,7 @@
     </div>
 
     <footer>
-      <p>Static app — runs fully in your browser. Host on GitHub Pages by publishing this repo's `index.html`.</p>
+      <p>© Rajnandini Fashion India Limited.</p>
     </footer>
   </div>
 

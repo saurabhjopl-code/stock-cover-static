@@ -1,7 +1,5 @@
 
-// script.js - client-side processing of CSVs to compute DRR, stock cover, recommendations
-// Uses PapaParse (loaded via CDN in index.html)
-
+// script.js - updated: compact table, warehouse filter, branding header, "FBF Stock" rename
 function $(id){ return document.getElementById(id); }
 
 const salesFileInput = $('salesFile');
@@ -12,6 +10,9 @@ const statusDiv = $('status');
 const resultsDiv = $('results');
 const summaryCardsDiv = $('summaryCards');
 const tableContainer = $('tableContainer');
+const controlsDiv = $('controls');
+const warehouseSelect = $('warehouseFilter');
+const clearWarehouseBtn = $('clearWarehouse');
 
 const downloadSummaryBtn = $('downloadSummary');
 const downloadWarehouseBtn = $('downloadWarehouse');
@@ -26,6 +27,7 @@ let cached = {
   refill: null,
   excess: null
 };
+let selectedWarehouses = new Set();
 
 processBtn.addEventListener('click', async () => {
   status('Validating files...');
@@ -43,12 +45,20 @@ processBtn.addEventListener('click', async () => {
     const { summary, warehouse } = computeStockCover(drr, stock);
     const { refill, excess } = getRecommendations(summary, warehouse);
 
+    // default sort SKU A->Z
+    summary.sort((a,b)=> String(a.SKU).localeCompare(String(b.SKU)));
+    warehouse.sort((a,b)=> String(a.SKU).localeCompare(String(b.SKU)));
+    refill.sort((a,b)=> String(a.SKU).localeCompare(String(b.SKU)));
+    excess.sort((a,b)=> String(a.SKU).localeCompare(String(b.SKU)));
+
     cached.summary = summary;
     cached.warehouse = warehouse;
     cached.refill = refill;
     cached.excess = excess;
 
+    populateWarehouseFilter(warehouse);
     renderSummaryCards(summary, warehouse, refill, excess);
+    controlsDiv.classList.remove('hidden');
     showResults();
     renderTable('summary');
     status('Done. Review results and download CSVs below.');
@@ -64,8 +74,11 @@ resetBtn.addEventListener('click', () => {
   status('');
   resultsDiv.classList.add('hidden');
   summaryCardsDiv.classList.add('hidden');
+  controlsDiv.classList.add('hidden');
   tableContainer.innerHTML = '';
+  warehouseSelect.innerHTML = '';
   cached = { sales:null, stock:null, summary:null, warehouse:null, refill:null, excess:null };
+  selectedWarehouses.clear();
 });
 
 function status(txt, isError=false){
@@ -84,7 +97,7 @@ function parseCSVFile(file){
   });
 }
 
-// ---------- Data logic functions (mirrors backend logic) ----------
+// ---------- Data logic functions ----------
 function findCol(objArr, candidates){
   if (!objArr || objArr.length===0) return null;
   const cols = Object.keys(objArr[0]);
@@ -98,28 +111,18 @@ function findCol(objArr, candidates){
 }
 
 function calculateDRR(salesArr, defaultDays=30){
-  // salesArr: array of objects from CSV
   const skuCol = findCol(salesArr, ['SKU','SKU ID','skuid','product_sku','productsku']) || Object.keys(salesArr[0])[0];
   const qtyCol = findCol(salesArr, ['Sale Qty','SaleQty','Qty','Quantity','SoldQty','OrderQty']);
   const dateCol = findCol(salesArr, ['Order Date','OrderDate','Date','order_date']);
-  // sum per sku
+
   const totals = {};
-  const dateSetBySku = {};
   for (let r of salesArr){
     const sku = r[skuCol];
     if (sku===undefined || sku===null) continue;
-    const qty = qtyCol ? Number(String(r[qtyCol]).replace(/[^0-9.\-eE]/g,'')) || 0 : 1;
+    const qty = qtyCol ? Number(String(r[qtyCol]).replace(/[^0-9.\\-eE]/g,'')) || 0 : 1;
     totals[sku] = (totals[sku] || 0) + qty;
-    if (dateCol){
-      const d = new Date(r[dateCol]);
-      if (!isNaN(d)) {
-        const key = d.toISOString().slice(0,10);
-        dateSetBySku[sku] = dateSetBySku[sku] || new Set();
-        dateSetBySku[sku].add(key);
-      }
-    }
   }
-  // days_in_period: if any dates found, use unique days across whole data; else defaultDays
+
   let days = defaultDays;
   if (dateCol){
     const allDates = new Set();
@@ -145,17 +148,15 @@ function calculateDRR(salesArr, defaultDays=30){
 }
 
 function computeStockCover(drrArr, stockArr){
-  // stockArr rows with SKU, Warehouse Id, Live on Website
   const skuCol = findCol(stockArr, ['SKU','SKU ID','product_sku','productsku']) || Object.keys(stockArr[0])[0];
   const whCol = findCol(stockArr, ['Warehouse Id','WarehouseId','Warehouse','Location Id','LocationId','FC Id']) || (Object.keys(stockArr[0])[1] || 'Warehouse Id');
   const liveCol = findCol(stockArr, ['Live on Website','LiveOnWebsite','Live','Available','AvailableQty','Stock','Qty']) || Object.keys(stockArr[0]).slice(-1)[0];
 
-  // aggregate stock per SKU+Warehouse
   const warehouseGrouped = {};
   for (let r of stockArr){
     const sku = r[skuCol];
     const wh = r[whCol] || 'UNKNOWN';
-    const live = Number(String(r[liveCol]).replace(/[^0-9.\-eE]/g,'')) || 0;
+    const live = Number(String(r[liveCol]).replace(/[^0-9.\\-eE]/g,'')) || 0;
     const key = sku + '||' + wh;
     warehouseGrouped[key] = (warehouseGrouped[key] || 0) + live;
   }
@@ -164,33 +165,32 @@ function computeStockCover(drrArr, stockArr){
   for (let key in warehouseGrouped){
     const [sku, wh] = key.split('||');
     const live = warehouseGrouped[key];
-    warehouseRows.push({ SKU: sku, 'Warehouse Id': wh, 'Live on Website': live });
+    // NOTE: use "FBF Stock" key instead of "Live on Website"
+    warehouseRows.push({ SKU: sku, 'Warehouse Id': wh, 'FBF Stock': live });
     totalStockBySku[sku] = (totalStockBySku[sku] || 0) + live;
   }
-  // merge with drr array -> summary
   const summary = drrArr.map(d => {
     const totalFbf = totalStockBySku[d.SKU] || 0;
-    const cover = d.DRR === 0 ? Infinity : totalFbf / d.DRR;
+    const cover = d.DRR === 0 ? Infinity : Number((totalFbf / d.DRR).toFixed(2));
     return {
       SKU: d.SKU,
       'Total Sales': d['Total Sales'],
       'Days_in_period': d.Days_in_period,
-      'DRR': d.DRR,
-      '30day_requirement': d['30day_requirement'],
+      'DRR': Number(d.DRR.toFixed(2)),
+      '30day_requirement': Number(d['30day_requirement'].toFixed(2)),
       'Total FBF Stock': totalFbf,
       'Stock Cover Days (SKU level)': cover
     };
   });
-  // compute warehouse-level cover (merge DRR)
   const warehouseWithDRR = warehouseRows.map(w => {
-    const drrRow = drrArr.find(d => d.SKU === w.SKU) || { DRR: 0 };
-    const cover = drrRow.DRR === 0 ? Infinity : w['Live on Website'] / drrRow.DRR;
+    const drrRow = drrArr.find(d => d.SKU === w.SKU) || { DRR: 0, '30day_requirement':0 };
+    const cover = drrRow.DRR === 0 ? Infinity : Number((w['FBF Stock'] / drrRow.DRR).toFixed(2));
     return {
       SKU: w.SKU,
       'Warehouse Id': w['Warehouse Id'],
-      'Live on Website': w['Live on Website'],
-      'DRR': drrRow.DRR || 0,
-      '30day_requirement': drrRow['30day_requirement'] || 0,
+      'FBF Stock': w['FBF Stock'],
+      'DRR': Number((drrRow.DRR || 0).toFixed(2)),
+      '30day_requirement': Number((drrRow['30day_requirement']||0).toFixed(2)),
       'Stock Cover Days (Warehouse)': cover
     };
   });
@@ -198,7 +198,6 @@ function computeStockCover(drrArr, stockArr){
 }
 
 function getRecommendations(summaryArr, warehouseArr){
-  // Refill: Total FBF Stock < 30day_requirement
   const refill = summaryArr.filter(s => (s['Total FBF Stock'] || 0) < (s['30day_requirement'] || 0)).map(s => {
     return {
       SKU: s.SKU,
@@ -210,17 +209,16 @@ function getRecommendations(summaryArr, warehouseArr){
       'Recommended Warehouse': recommendWarehouse(s.SKU, warehouseArr)
     };
   });
-  // Excess: warehouse rows where Stock Cover Days > 60
   const excess = warehouseArr.map(w => {
     const cover = w['Stock Cover Days (Warehouse)'];
     const dr = w.DRR || 0;
-    const live = w['Live on Website'] || 0;
+    const live = w['FBF Stock'] || 0;
     const excessQty = (dr && cover > 60) ? Math.max(0, Math.round(live - dr * 60)) : 0;
     return {
       SKU: w.SKU,
       'Warehouse Id': w['Warehouse Id'],
-      'Live on Website': live,
-      'DRR': dr,
+      'FBF Stock': live,
+      'DRR': w.DRR,
       'Stock Cover Days (Warehouse)': cover,
       'Excess Qty (if >60 days)': excessQty
     };
@@ -229,11 +227,10 @@ function getRecommendations(summaryArr, warehouseArr){
 }
 
 function recommendWarehouse(sku, warehouseArr){
-  // prefer warehouse with highest Live on Website for the SKU
   const candidates = warehouseArr.filter(w => w.SKU === sku);
-  if (!candidates || candidates.length===0) return '';
-  candidates.sort((a,b) => (b['Live on Website']||0) - (a['Live on Website']||0));
-  return candidates[0]['Warehouse Id'] || '';
+  if (!candidates || candidates.length===0) return '-';
+  candidates.sort((a,b)=> (b['FBF Stock']||0) - (a['FBF Stock']||0));
+  return candidates[0]['Warehouse Id'] || '-';
 }
 
 // ---------- Rendering ----------
@@ -257,9 +254,8 @@ function renderSummaryCards(summary, warehouse, refill, excess){
   summaryCardsDiv.appendChild(div);
 }
 
-function showResults(){ resultsDiv.classList.remove('hidden'); summaryCardsDiv.classList.remove('hidden'); }
+function showResults(){ resultsDiv.classList.remove('hidden'); summaryCardsDiv.classList.remove('hidden'); controlsDiv.classList.remove('hidden'); }
 
-// tab behavior
 document.querySelectorAll('.tab').forEach(btn => {
   btn.addEventListener('click', (ev) => {
     document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
@@ -268,6 +264,38 @@ document.querySelectorAll('.tab').forEach(btn => {
     renderTable(tab);
   });
 });
+
+function populateWarehouseFilter(warehouseRows){
+  const set = new Set(warehouseRows.map(r => r['Warehouse Id']).filter(Boolean));
+  const arr = Array.from(set).sort((a,b)=> String(a).localeCompare(String(b)));
+  warehouseSelect.innerHTML = '';
+  for (let w of arr){
+    const opt = document.createElement('option');
+    opt.value = w; opt.textContent = w;
+    warehouseSelect.appendChild(opt);
+  }
+  // select none by default
+  warehouseSelect.selectedIndex = -1;
+}
+
+// multi-select behavior
+warehouseSelect.addEventListener('change', ()=> {
+  selectedWarehouses.clear();
+  for (let opt of warehouseSelect.selectedOptions){
+    selectedWarehouses.add(opt.value);
+  }
+  renderCurrentTab();
+});
+clearWarehouseBtn.addEventListener('click', ()=> {
+  warehouseSelect.selectedIndex = -1;
+  selectedWarehouses.clear();
+  renderCurrentTab();
+});
+
+function renderCurrentTab(){
+  const activeTab = document.querySelector('.tab.active').getAttribute('data-tab');
+  renderTable(activeTab);
+}
 
 function renderTable(tab){
   tableContainer.innerHTML = '';
@@ -278,14 +306,24 @@ function renderTable(tab){
     cols = ['SKU','Total Sales','DRR','30day_requirement','Total FBF Stock','Stock Cover Days (SKU level)'];
   } else if (tab === 'warehouse') {
     rows = cached.warehouse || [];
-    cols = ['SKU','Warehouse Id','Live on Website','DRR','Stock Cover Days (Warehouse)'];
+    cols = ['SKU','Warehouse Id','FBF Stock','DRR','Stock Cover Days (Warehouse)'];
   } else if (tab === 'refill') {
     rows = cached.refill || [];
     cols = ['SKU','Total Sales','DRR','30day_requirement','Total FBF Stock','Required Qty to reach 30d','Recommended Warehouse'];
   } else if (tab === 'excess') {
     rows = cached.excess || [];
-    cols = ['SKU','Warehouse Id','Live on Website','DRR','Stock Cover Days (Warehouse)','Excess Qty (if >60 days)'];
+    cols = ['SKU','Warehouse Id','FBF Stock','DRR','Stock Cover Days (Warehouse)','Excess Qty (if >60 days)'];
   }
+
+  // apply warehouse filter for relevant tabs
+  if (selectedWarehouses.size > 0 && (tab === 'warehouse' || tab === 'refill' || tab === 'excess')) {
+    rows = rows.filter(r => {
+      // some rows (summary) don't have Warehouse Id
+      if (!r['Warehouse Id']) return false;
+      return selectedWarehouses.has(r['Warehouse Id']);
+    });
+  }
+
   const table = document.createElement('table');
   const thead = document.createElement('thead'); const thr = document.createElement('tr');
   cols.forEach(c => { const th = document.createElement('th'); th.textContent = c; thr.appendChild(th); });
@@ -297,10 +335,9 @@ function renderTable(tab){
       const td = document.createElement('td');
       let v = r[c];
       if (v === undefined) {
-        // try lowercase variants
         v = r[c.toLowerCase()] || r[camelCase(c)] || '';
       }
-      td.textContent = (v === Infinity) ? '∞' : (v === null || v === undefined ? '' : String(v));
+      td.textContent = formatCell(v);
       tr.appendChild(td);
     });
     tbody.appendChild(tr);
@@ -310,17 +347,25 @@ function renderTable(tab){
 }
 
 // helpers
-function camelCase(s){
-  return s.replace(/[^a-zA-Z0-9]+(.)/g, (m, chr) => chr.toUpperCase());
+function camelCase(s){ return s.replace(/[^a-zA-Z0-9]+(.)/g, (m, chr) => chr.toUpperCase()); }
+
+function formatCell(v) {
+  if (v === null || v === undefined || v === "") return "-";
+  if (v === Infinity) return "∞";
+  let num = Number(v);
+  if (!isNaN(num)) {
+    if (Number.isInteger(num)) return num.toString();
+    return num.toFixed(2);
+  }
+  return String(v);
 }
 
-// ---------- CSV download helpers ----------
+// CSV download helpers
 function downloadCSV(dataArr, filename){
-  if (!dataArr) return;
+  if (!dataArr || dataArr.length === 0) { alert('No data to download'); return; }
   const cols = Object.keys(dataArr[0] || {});
   const lines = [cols.join(',')].concat(dataArr.map(r => cols.map(c => {
     const v = r[c] === undefined ? '' : String(r[c]);
-    // escape quotes
     return `"${v.replace(/"/g,'""')}"`;
   }).join(',')));
   const csv = lines.join('\n');
