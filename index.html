@@ -1,0 +1,54 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Stock Cover Analyzer (Client-side)</title>
+  <link rel="stylesheet" href="styles.css" />
+  <!-- PapaParse CDN -->
+  <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
+</head>
+<body>
+  <div class="container">
+    <h1>Stock Cover Analyzer — Client-side</h1>
+    <p class="lead">Upload Flipkart Sales CSV and FBF Stock CSV. Processing runs in your browser — no server needed. Ready to host on GitHub Pages.</p>
+
+    <div class="uploader">
+      <label>Flipkart Sales CSV<input id="salesFile" type="file" accept=".csv" /></label>
+      <label>FBF Stock CSV<input id="stockFile" type="file" accept=".csv" /></label>
+      <div class="actions">
+        <button id="processBtn">Process Files</button>
+        <button id="resetBtn" class="muted">Reset</button>
+      </div>
+      <div id="status" class="status"></div>
+    </div>
+
+    <div id="summaryCards" class="cards hidden"></div>
+
+    <div id="results" class="hidden">
+      <div class="tabs">
+        <button class="tab active" data-tab="summary">Stock Cover (SKU)</button>
+        <button class="tab" data-tab="warehouse">Warehouse Level</button>
+        <button class="tab" data-tab="refill">Refill Recommendations</button>
+        <button class="tab" data-tab="excess">Excess (>60d)</button>
+      </div>
+
+      <div id="tableContainer"></div>
+
+      <div class="downloads">
+        <button id="downloadSummary">Download stock_cover_summary.csv</button>
+        <button id="downloadWarehouse">Download warehouse_level_stock.csv</button>
+        <button id="downloadRefill">Download refill_recommendations.csv</button>
+        <button id="downloadExcess">Download excess_stock_over_60d.csv</button>
+      </div>
+    </div>
+
+    <footer>
+      <p>Static app — runs fully in your browser. Host on GitHub Pages by publishing this repo's `index.html`.</p>
+    </footer>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
